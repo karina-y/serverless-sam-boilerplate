@@ -4,3 +4,7 @@
 
 # this may or may not work properly, i haven't tested it yet so idk. use at your own risk
 # readme's for backend and client are in each dir, don't forget to do ctrl shft f on any replace_ occurrences
+
+
+### THANKS TO THE SAM CLI TEAM FOR SUCH A KICKASS STARTER!!!!
+https://github.com/awslabs/aws-serverless-express/tree/master/examples/basic-starter
