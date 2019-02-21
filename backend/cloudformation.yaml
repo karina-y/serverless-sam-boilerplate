@@ -1,0 +1,237 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Express Application/API powered by API Gateway and Lambda
+
+Resources:
+  ApiGatewayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      DefinitionUri: ./simple-proxy-api.yaml
+      StageName: prod
+      Variables:
+        ServerlessExpressLambdaFunctionName: !Ref YOUR_SERVERLESS_EXPRESS_LAMBDA_FUNCTION_NAME
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - dynamodb:BatchGetItem
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:Query
+            - dynamodb:UpdateItem
+            Resource: arn:aws:dynamodb:YOUR_AWS_REGION:YOUR_ACCOUNT_ID:table/YOUR_TABLE_NAME
+
+  #custom table
+  CustomTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: YOUR_TABLE_NAME
+      AttributeDefinitions:
+        - AttributeName: id  #primary partition key
+          AttributeType: S
+#        - AttributeName: REPLACE_YOUR_PRIMARY_SORT_KEY_HERE  #primary sort key, comment back in if you want this
+#          AttributeType: N
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+#        - AttributeName: REPLACE_YOUR_PRIMARY_SORT_KEY_HERE  #primary sort key, comment back in if you want this
+#          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+
+  #custom role
+  LambdaDynamoTriggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: LambdaDynamoTriggerPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            Resource:
+              'Fn::GetAtt':
+                - CustomTable
+                - StreamArn
+          - Effect: Allow
+            Action:
+            - ses:SendTemplatedEmail
+            - ses:GetTemplate
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - dynamodb:UpdateItem
+            Resource: !GetAtt CustomTable.Arn
+
+  #custom role
+  ApiGatewayLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: ApiGatewayLogsRole
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            - logs:PutLogEvents
+            - logs:GetLogEvents
+            - logs:FilterLogEvents
+            Resource: "*"
+
+  LambdaApiGatewayExecutionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt YOUR_APP_NAME_AwsServerlessExpressFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Join
+        - ''
+        - - 'arn:aws:execute-api:'
+          - !Ref AWS::Region
+          - ":"
+          - !Ref AWS::AccountId
+          - ":"
+          - !Ref ApiGatewayApi
+          - "/*/*"
+
+  YOUR_APP_NAME_AwsServerlessExpressFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./
+      Handler: lambda.handler
+      MemorySize: 1024
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: nodejs8.10
+      Timeout: 30
+      Events:
+        ProxyApiRoot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /
+            Method: ANY
+        ProxyApiGreedy:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /{proxy+}
+            Method: ANY
+
+  #custom function
+  YOUR_APP_NAME__YOUR_TABLE_NAME_TriggerFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs8.10
+      CodeUri: ./YOUR_APP_NAME__YOUR_TABLE_NAME_Trigger
+      Description: ''
+      MemorySize: 128
+      Timeout: 3
+      Role: !GetAtt LambdaDynamoTriggerRole.Arn
+      Events:
+        DynamoDB1:
+          Type: DynamoDB
+          Properties:
+            Stream:
+              'Fn::GetAtt':
+                - CustomTable
+                - StreamArn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 5
+      Environment:
+        Variables:
+          FROM_EMAIL: REPLACE_FROM_EMAIL_HERE
+      ReservedConcurrentExecutions: 5
+
+
+
+Outputs:
+  LambdaFunctionConsoleUrl:
+    Description: Console URL for the Lambda Function.
+    Value: !Join
+      - ''
+      - - https://
+        - !Ref AWS::Region
+        - ".console.aws.amazon.com/lambda/home?region="
+        - !Ref AWS::Region
+        - "#/functions/"
+        - !Ref YOUR_APP_NAME_AwsServerlessExpressFunction
+
+  ApiGatewayApiConsoleUrl:
+    Description: Console URL for the API Gateway API's Stage.
+    Value: !Join
+      - ''
+      - - https://
+        - !Ref AWS::Region
+        - ".console.aws.amazon.com/apigateway/home?region="
+        - !Ref AWS::Region
+        - "#/apis/"
+        - !Ref ApiGatewayApi
+        - "/stages/prod"
+
+  ApiUrl:
+    Description: Invoke URL for your API. Clicking this link will perform a GET request
+      on the root resource of your API.
+    Value: !Join
+      - ''
+      - - https://
+        - !Ref ApiGatewayApi
+        - ".execute-api."
+        - !Ref AWS::Region
+        - ".amazonaws.com/prod/"
