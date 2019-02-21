@@ -87,7 +87,7 @@
 ### edit roles
 - enable Cloudwatch logging api gateway > api > stages > prod/stage > logs/tracing > enable cloudwatch logs for info and log details
     - NOTE this may need to be repeated upon each deployment :/
-    - to debug api calls go to cloudwatch > logs >
+    - to debug api calls go to cloudwatch > logs > apiname
 
 
 ### TO CREATE EMAIL ON INSERT TRIGGER
@@ -109,6 +109,7 @@
 
 ## Deployment Notes
 - ensure no package.jsons are exposed!!
+- works seamlessly with aws amplify
 
 ## Debugging
 - endpoints all live in /backend/app.js
